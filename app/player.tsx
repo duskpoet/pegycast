@@ -2,8 +2,8 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { router } from "expo-router";
-import { useEffect, useRef, useState } from "react";
-import { LayoutChangeEvent, Platform, Pressable, StyleSheet, Text, View, useColorScheme } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { LayoutChangeEvent, Platform, Pressable, ScrollView, StyleSheet, Text, View, useColorScheme } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
@@ -12,6 +12,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Collapsible } from "@/components/Collapsible";
 import Colors from "@/constants/colors";
 import { usePlayer } from "@/context/PlayerContext";
 import { usePodcasts } from "@/context/PodcastContext";
@@ -177,6 +178,11 @@ export default function PlayerScreen() {
     usePlayer();
   const { podcasts } = usePodcasts();
   const playScale = useSharedValue(1);
+  const [showDetails, setShowDetails] = useState(false);
+
+  const toggleDetails = useCallback(() => {
+    setShowDetails((prev) => !prev);
+  }, []);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
@@ -248,80 +254,124 @@ export default function PlayerScreen() {
         </Pressable>
       </View>
 
-      <View style={styles.artworkContainer}>
-        {currentEpisode.imageUrl ? (
-          <Image
-            source={{ uri: currentEpisode.imageUrl }}
-            style={styles.artwork}
-            contentFit="cover"
-            transition={300}
-          />
-        ) : (
-          <View style={[styles.artworkPlaceholder, { backgroundColor: theme.card }]}>
-            <Feather name="headphones" size={80} color={Colors.primary} />
-          </View>
-        )}
-        {isPlaying && (
-          <View style={[styles.playingRing, { borderColor: Colors.primary }]} />
-        )}
-      </View>
-
-      <View style={styles.episodeInfo}>
-        {podcast && (
-          <Text
-            style={[styles.podcastName, { color: Colors.primary, fontFamily: "Inter_500Medium" }]}
-            numberOfLines={1}
-          >
-            {podcast.title}
-          </Text>
-        )}
-        <Text
-          style={[styles.episodeTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}
-          numberOfLines={2}
-        >
-          {currentEpisode.title}
-        </Text>
-      </View>
-
-      <ProgressBar position={position} duration={duration} onSeek={seek} />
-
-      <View style={styles.controls}>
-        <Pressable
-          onPress={handleSkipBwd}
-          style={({ pressed }) => [styles.skipBtn, { opacity: pressed ? 0.6 : 1 }]}
-          hitSlop={12}
-        >
-          <Feather name="rotate-ccw" size={24} color={theme.text} />
-          <Text style={[styles.skipLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            15
-          </Text>
-        </Pressable>
-
-        <Animated.View style={playBtnStyle}>
-          <Pressable
-            onPress={handlePlayPause}
-            style={[styles.playBtn, { backgroundColor: Colors.primary }]}
-          >
-            <Feather
-              name={isPlaying ? "pause" : "play"}
-              size={32}
-              color="#fff"
-              style={isPlaying ? undefined : { marginLeft: 4 }}
+      <ScrollView
+        style={styles.scrollContent}
+        contentContainerStyle={styles.scrollContentContainer}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.artworkContainer}>
+          {currentEpisode.imageUrl ? (
+            <Image
+              source={{ uri: currentEpisode.imageUrl }}
+              style={styles.artwork}
+              contentFit="cover"
+              transition={300}
             />
-          </Pressable>
-        </Animated.View>
+          ) : (
+            <View style={[styles.artworkPlaceholder, { backgroundColor: theme.card }]}>
+              <Feather name="headphones" size={80} color={Colors.primary} />
+            </View>
+          )}
+          {isPlaying && (
+            <View style={[styles.playingRing, { borderColor: Colors.primary }]} />
+          )}
+        </View>
 
-        <Pressable
-          onPress={handleSkipFwd}
-          style={({ pressed }) => [styles.skipBtn, { opacity: pressed ? 0.6 : 1 }]}
-          hitSlop={12}
-        >
-          <Feather name="rotate-cw" size={24} color={theme.text} />
-          <Text style={[styles.skipLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-            30
+        <View style={styles.episodeInfo}>
+          {podcast && (
+            <Text
+              style={[styles.podcastName, { color: Colors.primary, fontFamily: "Inter_500Medium" }]}
+              numberOfLines={1}
+            >
+              {podcast.title}
+            </Text>
+          )}
+          <Text
+            style={[styles.episodeTitle, { color: theme.text, fontFamily: "Inter_700Bold" }]}
+            numberOfLines={showDetails ? undefined : 2}
+          >
+            {currentEpisode.title}
           </Text>
-        </Pressable>
-      </View>
+        </View>
+
+        {currentEpisode.description ? (
+          <View style={styles.detailsSection}>
+            <Collapsible expanded={showDetails} collapsedHeight={44}>
+              <Text style={[styles.detailsDescription, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                {currentEpisode.description}
+              </Text>
+            </Collapsible>
+            <Collapsible expanded={showDetails}>
+              <View style={styles.detailsMeta}>
+                {currentEpisode.publishedAt > 0 && (
+                  <View style={styles.detailsRow}>
+                    <Feather name="calendar" size={13} color={theme.textTertiary} />
+                    <Text style={[styles.detailsMetaText, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                      {new Date(currentEpisode.publishedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                    </Text>
+                  </View>
+                )}
+                {currentEpisode.fileSize > 0 && (
+                  <View style={styles.detailsRow}>
+                    <Feather name="hard-drive" size={13} color={theme.textTertiary} />
+                    <Text style={[styles.detailsMetaText, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                      {currentEpisode.fileSize >= 1048576
+                        ? `${(currentEpisode.fileSize / 1048576).toFixed(1)} MB`
+                        : `${Math.round(currentEpisode.fileSize / 1024)} KB`}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </Collapsible>
+            <Pressable onPress={toggleDetails} style={styles.showMoreBtn} hitSlop={8}>
+              <Text style={[styles.showMoreText, { color: Colors.primary, fontFamily: "Inter_500Medium" }]}>
+                {showDetails ? "Show less" : "Show more"}
+              </Text>
+              <Feather name={showDetails ? "chevron-up" : "chevron-down"} size={14} color={Colors.primary} />
+            </Pressable>
+          </View>
+        ) : null}
+
+        <ProgressBar position={position} duration={duration} onSeek={seek} />
+
+        <View style={styles.controls}>
+          <Pressable
+            onPress={handleSkipBwd}
+            style={({ pressed }) => [styles.skipBtn, { opacity: pressed ? 0.6 : 1 }]}
+            hitSlop={12}
+          >
+            <Feather name="rotate-ccw" size={24} color={theme.text} />
+            <Text style={[styles.skipLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              15
+            </Text>
+          </Pressable>
+
+          <Animated.View style={playBtnStyle}>
+            <Pressable
+              onPress={handlePlayPause}
+              style={[styles.playBtn, { backgroundColor: Colors.primary }]}
+            >
+              <Feather
+                name={isPlaying ? "pause" : "play"}
+                size={32}
+                color="#fff"
+                style={isPlaying ? undefined : { marginLeft: 4 }}
+              />
+            </Pressable>
+          </Animated.View>
+
+          <Pressable
+            onPress={handleSkipFwd}
+            style={({ pressed }) => [styles.skipBtn, { opacity: pressed ? 0.6 : 1 }]}
+            hitSlop={12}
+          >
+            <Feather name="rotate-cw" size={24} color={theme.text} />
+            <Text style={[styles.skipLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              30
+            </Text>
+          </Pressable>
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -329,6 +379,11 @@ export default function PlayerScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  scrollContent: {
+    flex: 1,
+  },
+  scrollContentContainer: {
     paddingHorizontal: 28,
     alignItems: "center",
   },
@@ -338,6 +393,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     width: "100%",
     marginBottom: 24,
+    paddingHorizontal: 28,
   },
   downBtn: {
     width: 40,
@@ -427,5 +483,35 @@ const styles = StyleSheet.create({
     borderRadius: 36,
     alignItems: "center",
     justifyContent: "center",
+  },
+  detailsSection: {
+    width: "100%",
+    marginBottom: 20,
+  },
+  detailsDescription: {
+    fontSize: 14,
+    lineHeight: 22,
+    marginBottom: 10,
+  },
+  detailsMeta: {
+    gap: 6,
+    marginBottom: 4,
+  },
+  detailsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  detailsMetaText: {
+    fontSize: 12,
+  },
+  showMoreBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 6,
+  },
+  showMoreText: {
+    fontSize: 13,
   },
 });

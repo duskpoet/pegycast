@@ -1,9 +1,11 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
+import { useCallback, useState } from "react";
 import { Pressable, StyleSheet, Text, View, useColorScheme } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 
+import { Collapsible } from "@/components/Collapsible";
 import Colors from "@/constants/colors";
 import { Episode } from "@/context/PodcastContext";
 
@@ -29,10 +31,23 @@ function formatDate(timestamp: number): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function formatFileSize(bytes: number): string {
+  if (!bytes) return "";
+  if (bytes >= 1073741824) return `${(bytes / 1073741824).toFixed(1)} GB`;
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
+
 export function EpisodeRow({ episode, onPress, onDownload, isPlaying }: EpisodeRowProps) {
   const colorScheme = useColorScheme();
   const theme = colorScheme === "dark" ? Colors.dark : Colors.light;
   const scale = useSharedValue(1);
+  const [expanded, setExpanded] = useState(false);
+
+  const toggleExpanded = useCallback(() => {
+    setExpanded((prev) => !prev);
+  }, []);
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -122,6 +137,35 @@ export function EpisodeRow({ episode, onPress, onDownload, isPlaying }: EpisodeR
               )}
             </Pressable>
           </View>
+
+          {episode.description ? (
+            <View style={styles.expandedSection}>
+              <Collapsible expanded={expanded} collapsedHeight={40}>
+                <Text style={[styles.episodeDescription, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                  {episode.description}
+                </Text>
+              </Collapsible>
+              <Collapsible expanded={expanded}>
+                {episode.fileSize > 0 ? (
+                  <View style={styles.episodeDetailRow}>
+                    <Feather name="hard-drive" size={13} color={theme.textTertiary} />
+                    <Text style={[styles.episodeDetailText, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
+                      {formatFileSize(episode.fileSize)}
+                    </Text>
+                  </View>
+                ) : <View />}
+              </Collapsible>
+            </View>
+          ) : null}
+
+          {episode.description ? (
+            <Pressable onPress={toggleExpanded} style={styles.showMoreBtn} hitSlop={4}>
+              <Text style={[styles.showMoreText, { color: Colors.primary, fontFamily: "Inter_500Medium" }]}>
+                {expanded ? "Show less" : "Show more"}
+              </Text>
+              <Feather name={expanded ? "chevron-up" : "chevron-down"} size={13} color={Colors.primary} />
+            </Pressable>
+          ) : null}
         </View>
       </Pressable>
     </Animated.View>
@@ -229,5 +273,30 @@ const styles = StyleSheet.create({
   },
   progressText: {
     fontSize: 11,
+  },
+  expandedSection: {
+    marginTop: 6,
+    gap: 8,
+  },
+  episodeDescription: {
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  episodeDetailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  episodeDetailText: {
+    fontSize: 12,
+  },
+  showMoreBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    marginTop: 4,
+  },
+  showMoreText: {
+    fontSize: 12,
   },
 });

@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import { router, useLocalSearchParams } from "expo-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +17,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Collapsible } from "@/components/Collapsible";
 import { EpisodeRow } from "@/components/EpisodeRow";
 import { MiniPlayer } from "@/components/MiniPlayer";
 import Colors from "@/constants/colors";
@@ -32,6 +33,11 @@ export default function PodcastScreen() {
     usePodcasts();
   const { currentEpisode, playEpisode } = usePlayer();
   const [refreshing, setRefreshing] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
+
+  const toggleDetails = useCallback(() => {
+    setShowDetails((prev) => !prev);
+  }, []);
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : 0;
@@ -197,12 +203,50 @@ export default function PodcastScreen() {
 
             {podcast.description ? (
               <View style={[styles.descSection, { borderBottomColor: theme.border }]}>
-                <Text
-                  style={[styles.description, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}
-                  numberOfLines={3}
-                >
-                  {podcast.description}
-                </Text>
+                <Collapsible expanded={showDetails} collapsedHeight={66}>
+                  <Text style={[styles.description, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                    {podcast.description}
+                  </Text>
+                </Collapsible>
+                <Collapsible expanded={showDetails}>
+                  <View style={styles.detailsContainer}>
+                    {podcast.author ? (
+                      <View style={styles.detailRow}>
+                        <Feather name="user" size={14} color={theme.textTertiary} />
+                        <Text style={[styles.detailText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                          {podcast.author}
+                        </Text>
+                      </View>
+                    ) : null}
+                    <View style={styles.detailRow}>
+                      <Feather name="list" size={14} color={theme.textTertiary} />
+                      <Text style={[styles.detailText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                        {episodes.length} episode{episodes.length !== 1 ? "s" : ""}
+                      </Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Feather name="rss" size={14} color={theme.textTertiary} />
+                      <Text
+                        style={[styles.detailText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}
+                        numberOfLines={1}
+                      >
+                        {podcast.feedUrl}
+                      </Text>
+                    </View>
+                    <View style={styles.detailRow}>
+                      <Feather name="calendar" size={14} color={theme.textTertiary} />
+                      <Text style={[styles.detailText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                        Subscribed {new Date(podcast.subscribedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </Text>
+                    </View>
+                  </View>
+                </Collapsible>
+                <Pressable onPress={toggleDetails} style={styles.showMoreBtn} hitSlop={8}>
+                  <Text style={[styles.showMoreText, { color: Colors.primary, fontFamily: "Inter_500Medium" }]}>
+                    {showDetails ? "Show less" : "Show more"}
+                  </Text>
+                  <Feather name={showDetails ? "chevron-up" : "chevron-down"} size={14} color={Colors.primary} />
+                </Pressable>
               </View>
             ) : null}
 
@@ -300,6 +344,29 @@ const styles = StyleSheet.create({
   description: {
     fontSize: 14,
     lineHeight: 22,
+  },
+  detailsContainer: {
+    marginTop: 12,
+    gap: 8,
+  },
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  detailText: {
+    fontSize: 13,
+    lineHeight: 18,
+    flex: 1,
+  },
+  showMoreBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 10,
+  },
+  showMoreText: {
+    fontSize: 13,
   },
   episodesHeader: {
     flexDirection: "row",
