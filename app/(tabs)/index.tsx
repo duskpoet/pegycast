@@ -1,98 +1,198 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { Feather } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import { router } from "expo-router";
+import { useState } from "react";
+import {
+  Alert,
+  FlatList,
+  Platform,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+  useColorScheme,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { AddFeedSheet } from "@/components/AddFeedSheet";
+import { MiniPlayer } from "@/components/MiniPlayer";
+import { PodcastCard } from "@/components/PodcastCard";
+import Colors from "@/constants/colors";
+import { Podcast, usePodcasts } from "@/context/PodcastContext";
+import { usePlayer } from "@/context/PlayerContext";
 
-export default function HomeScreen() {
+export default function PodcastsScreen() {
+  const colorScheme = useColorScheme();
+  const theme = colorScheme === "dark" ? Colors.dark : Colors.light;
+  const insets = useSafeAreaInsets();
+  const { podcasts, removePodcast, isLoading } = usePodcasts();
+  const { currentEpisode } = usePlayer();
+  const [showAddSheet, setShowAddSheet] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const topPad = Platform.OS === "web" ? 67 : insets.top;
+  const bottomPad = Platform.OS === "web" ? 34 : 0;
+
+  const handleRemove = (podcast: Podcast) => {
+    Alert.alert(
+      "Remove Podcast",
+      `Remove "${podcast.title}" from your library?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            removePodcast(podcast.id);
+          },
+        },
+      ]
+    );
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <View style={[styles.header, { paddingTop: topPad + 12 }]}>
+        <Text style={[styles.title, { color: theme.text, fontFamily: "Inter_700Bold" }]}>
+          My Podcasts
+        </Text>
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setShowAddSheet(true);
+          }}
+          style={({ pressed }) => [
+            styles.addBtn,
+            { backgroundColor: Colors.primary, opacity: pressed ? 0.85 : 1 },
+          ]}
+        >
+          <Feather name="plus" size={22} color="#fff" />
+        </Pressable>
+      </View>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      <FlatList
+        data={podcasts}
+        keyExtractor={(item) => item.id}
+        scrollEnabled={!!podcasts.length}
+        contentContainerStyle={[
+          styles.list,
+          { paddingBottom: currentEpisode ? 90 + bottomPad : 24 + bottomPad },
+        ]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            tintColor={Colors.primary}
+            onRefresh={() => {
+              setRefreshing(false);
+            }}
+          />
+        }
+        renderItem={({ item }) => (
+          <PodcastCard podcast={item} onLongPress={() => handleRemove(item)} />
+        )}
+        ListEmptyComponent={
+          isLoading ? null : (
+            <View style={styles.emptyState}>
+              <View style={[styles.emptyIcon, { backgroundColor: Colors.primary + "15" }]}>
+                <Feather name="mic" size={40} color={Colors.primary} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: theme.text, fontFamily: "Inter_600SemiBold" }]}>
+                No podcasts yet
+              </Text>
+              <Text style={[styles.emptySubtitle, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+                Add a podcast by tapping the{" "}
+                <Text style={{ color: Colors.primary }}>+</Text> button above
+              </Text>
+              <Pressable
+                onPress={() => setShowAddSheet(true)}
+                style={({ pressed }) => [
+                  styles.emptyBtn,
+                  { backgroundColor: Colors.primary, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Text style={[styles.emptyBtnText, { fontFamily: "Inter_600SemiBold" }]}>
+                  Add Podcast
+                </Text>
+              </Pressable>
+            </View>
+          )
+        }
+      />
+
+      {currentEpisode && (
+        <View style={[styles.miniPlayerContainer, { paddingBottom: bottomPad || insets.bottom + 60 }]}>
+          <MiniPlayer />
+        </View>
+      )}
+
+      <AddFeedSheet visible={showAddSheet} onClose={() => setShowAddSheet(false)} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  container: {
+    flex: 1,
   },
-  stepContainer: {
-    gap: 8,
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingBottom: 16,
+  },
+  title: {
+    fontSize: 32,
+  },
+  addBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  list: {
+    paddingTop: 8,
+  },
+  emptyState: {
+    alignItems: "center",
+    paddingTop: 80,
+    paddingHorizontal: 40,
+    gap: 16,
+  },
+  emptyIcon: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 8,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
+  emptyTitle: {
+    fontSize: 22,
+    textAlign: "center",
+  },
+  emptySubtitle: {
+    fontSize: 15,
+    textAlign: "center",
+    lineHeight: 22,
+  },
+  emptyBtn: {
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginTop: 8,
+  },
+  emptyBtnText: {
+    color: "#fff",
+    fontSize: 16,
+  },
+  miniPlayerContainer: {
+    position: "absolute",
     bottom: 0,
     left: 0,
-    position: 'absolute',
+    right: 0,
   },
 });
