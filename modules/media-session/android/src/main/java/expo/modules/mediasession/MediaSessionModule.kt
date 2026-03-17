@@ -12,6 +12,7 @@ import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.net.URL
@@ -24,6 +25,7 @@ class MediaSessionModule : Module() {
   private var notificationManager: NotificationManager? = null
   private var cachedArtwork: Bitmap? = null
   private var cachedArtworkUrl: String? = null
+  private var serviceRunning = false
 
   companion object {
     const val CHANNEL_ID = "podcast_playback"
@@ -42,6 +44,7 @@ class MediaSessionModule : Module() {
     }
 
     OnDestroy {
+      appContext.reactContext?.let { stopPlaybackService(it) }
       mediaSession?.release()
       mediaSession = null
     }
@@ -92,8 +95,8 @@ class MediaSessionModule : Module() {
 
     Function("clearNowPlaying") {
       mediaSession?.setMetadata(null)
-      appContext.reactContext?.let {
-        notificationManager?.cancel(NOTIFICATION_ID)
+      appContext.reactContext?.let { context ->
+        stopPlaybackService(context)
       }
     }
   }
@@ -216,11 +219,35 @@ class MediaSessionModule : Module() {
       buildMediaAction(context, PlaybackStateCompat.ACTION_SKIP_TO_NEXT)
     )
 
+    val notification = builder.build()
+
     try {
-      notificationManager?.notify(NOTIFICATION_ID, builder.build())
+      if (isPlaying && !serviceRunning) {
+        val serviceIntent = Intent(context, MediaPlaybackService::class.java).apply {
+          putExtra(MediaPlaybackService.EXTRA_NOTIFICATION, notification)
+        }
+        ContextCompat.startForegroundService(context, serviceIntent)
+        serviceRunning = true
+      } else if (isPlaying && serviceRunning) {
+        // Update the existing foreground notification
+        notificationManager?.notify(NOTIFICATION_ID, notification)
+      } else if (!isPlaying && serviceRunning) {
+        // Paused — keep service alive but update notification (not ongoing)
+        notificationManager?.notify(NOTIFICATION_ID, notification)
+      } else {
+        notificationManager?.notify(NOTIFICATION_ID, notification)
+      }
     } catch (e: SecurityException) {
       // Missing notification permission on Android 13+
     }
+  }
+
+  private fun stopPlaybackService(context: Context) {
+    if (serviceRunning) {
+      context.stopService(Intent(context, MediaPlaybackService::class.java))
+      serviceRunning = false
+    }
+    notificationManager?.cancel(NOTIFICATION_ID)
   }
 
   private fun buildMediaAction(context: Context, action: Long): PendingIntent {
