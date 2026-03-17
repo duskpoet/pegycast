@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 
+import * as MediaSession from "../modules/media-session/src";
 import { Episode } from "./PodcastContext";
 
 const STORAGE_KEY = "player_state";
@@ -38,6 +39,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [duration, setDuration] = useState(0);
   const positionRef = useRef(0);
   const episodeRef = useRef<Episode | null>(null);
+  const isPlayingRef = useRef(false);
+  const durationRef = useRef(0);
 
   useEffect(() => {
     positionRef.current = position;
@@ -46,6 +49,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     episodeRef.current = currentEpisode;
   }, [currentEpisode]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
+
+  useEffect(() => {
+    durationRef.current = duration;
+  }, [duration]);
+
+  // Update media session playback state when playing/position changes
+  useEffect(() => {
+    if (currentEpisode) {
+      MediaSession.updatePlaybackState(isPlaying, position);
+    }
+  }, [isPlaying, currentEpisode, Math.floor(position / 5)]); // Update every ~5 seconds
 
   // Save playback state periodically
   useEffect(() => {
@@ -60,6 +78,46 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     }, 5000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Listen for media session commands (headphones, notification, lock screen)
+  useEffect(() => {
+    const subscription = MediaSession.addListener(
+      "onMediaCommand",
+      (event: { command: string; seekTime?: number }) => {
+        switch (event.command) {
+          case "play":
+            soundRef.current?.playAsync();
+            break;
+          case "pause":
+            soundRef.current?.pauseAsync();
+            break;
+          case "togglePlayPause":
+            if (isPlayingRef.current) {
+              soundRef.current?.pauseAsync();
+            } else {
+              soundRef.current?.playAsync();
+            }
+            break;
+          case "stop":
+            stopPlayback();
+            break;
+          case "skipForward":
+            handleSkipForward();
+            break;
+          case "skipBackward":
+            handleSkipBackward();
+            break;
+          case "seek":
+            if (event.seekTime != null) {
+              soundRef.current?.setPositionAsync(event.seekTime * 1000);
+              setPosition(event.seekTime);
+            }
+            break;
+        }
+      }
+    );
+    return () => subscription?.remove();
   }, []);
 
   useEffect(() => {
@@ -81,7 +139,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         if (episode) {
           setCurrentEpisode(episode);
           setPosition(savedPos);
-          // Load the sound paused at the saved position
           const uri = episode.downloadedPath || episode.audioUrl;
           Audio.Sound.createAsync(
             { uri },
@@ -94,13 +151,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             }
           ).then(({ sound }) => {
             soundRef.current = sound;
+            // Set now playing info for restored episode
+            MediaSession.updateNowPlaying({
+              title: episode.title,
+              artist: "Podcast",
+              artwork: episode.imageUrl,
+              duration: episode.duration || 0,
+              position: savedPos,
+              isPlaying: false,
+            });
           });
         }
       })
       .catch(console.error);
 
     return () => {
-      // Save final state on unmount
       const ep = episodeRef.current;
       const pos = positionRef.current;
       if (ep) {
@@ -110,6 +175,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         ).catch(console.error);
       }
       soundRef.current?.unloadAsync().catch(console.error);
+      MediaSession.clearNowPlaying();
     };
   }, []);
 
@@ -137,6 +203,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         onPlaybackStatusUpdate
       );
       soundRef.current = sound;
+
+      // Update media session now playing info
+      MediaSession.updateNowPlaying({
+        title: episode.title,
+        artist: "Podcast",
+        artwork: episode.imageUrl,
+        duration: episode.duration || 0,
+        position: 0,
+        isPlaying: true,
+      });
+
       AsyncStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({ episode, position: 0 })
@@ -162,16 +239,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setPosition(positionSecs);
   }, []);
 
-  const skipForward = useCallback(async () => {
+  const handleSkipForward = useCallback(async () => {
     if (!soundRef.current) return;
     const status = await soundRef.current.getStatusAsync();
     if (!status.isLoaded) return;
-    const newPos = Math.min((status.positionMillis + 30000) / 1000, duration);
+    const newPos = Math.min(
+      (status.positionMillis + 30000) / 1000,
+      durationRef.current
+    );
     await soundRef.current.setPositionAsync(newPos * 1000);
     setPosition(newPos);
-  }, [duration]);
+  }, []);
 
-  const skipBackward = useCallback(async () => {
+  const handleSkipBackward = useCallback(async () => {
     if (!soundRef.current) return;
     const status = await soundRef.current.getStatusAsync();
     if (!status.isLoaded) return;
@@ -180,7 +260,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setPosition(newPos);
   }, []);
 
-  const stop = useCallback(async () => {
+  const stopPlayback = useCallback(async () => {
     if (soundRef.current) {
       await soundRef.current.unloadAsync();
       soundRef.current = null;
@@ -189,6 +269,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setIsPlaying(false);
     setPosition(0);
     setDuration(0);
+    MediaSession.clearNowPlaying();
     AsyncStorage.removeItem(STORAGE_KEY).catch(console.error);
   }, []);
 
@@ -201,9 +282,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       playEpisode,
       togglePlayPause,
       seek,
-      skipForward,
-      skipBackward,
-      stop,
+      skipForward: handleSkipForward,
+      skipBackward: handleSkipBackward,
+      stop: stopPlayback,
     }),
     [
       currentEpisode,
@@ -213,9 +294,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       playEpisode,
       togglePlayPause,
       seek,
-      skipForward,
-      skipBackward,
-      stop,
+      handleSkipForward,
+      handleSkipBackward,
+      stopPlayback,
     ]
   );
 

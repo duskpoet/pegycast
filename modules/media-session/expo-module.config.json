@@ -1,0 +1,9 @@
+{
+  "platforms": ["ios", "android"],
+  "ios": {
+    "modules": ["MediaSessionModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.mediasession.MediaSessionModule"]
+  }
+}
