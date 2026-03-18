@@ -12,7 +12,7 @@ import {
 } from "react";
 
 import * as MediaSession from "../modules/media-session/src";
-import { Episode } from "./PodcastContext";
+import { Episode, usePodcasts } from "./PodcastContext";
 
 const STORAGE_KEY = "player_state";
 
@@ -32,6 +32,7 @@ interface PlayerContextValue {
 const PlayerContext = createContext<PlayerContextValue | null>(null);
 
 export function PlayerProvider({ children }: { children: ReactNode }) {
+  const { updateEpisode } = usePodcasts();
   const soundRef = useRef<Audio.Sound | null>(null);
   const [currentEpisode, setCurrentEpisode] = useState<Episode | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -41,6 +42,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const episodeRef = useRef<Episode | null>(null);
   const isPlayingRef = useRef(false);
   const durationRef = useRef(0);
+  const markedListenedRef = useRef<string | null>(null);
 
   useEffect(() => {
     positionRef.current = position;
@@ -143,12 +145,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           Audio.Sound.createAsync(
             { uri },
             { shouldPlay: false, positionMillis: savedPos * 1000 },
-            (status: AVPlaybackStatus) => {
-              if (!status.isLoaded) return;
-              setIsPlaying(status.isPlaying);
-              setPosition(status.positionMillis / 1000);
-              setDuration((status.durationMillis ?? 0) / 1000);
-            }
+            onPlaybackStatusUpdate
           ).then(({ sound }) => {
             soundRef.current = sound;
             // Set now playing info for restored episode
@@ -184,7 +181,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setIsPlaying(status.isPlaying);
     setPosition(status.positionMillis / 1000);
     setDuration((status.durationMillis ?? 0) / 1000);
-  }, []);
+    const ep = episodeRef.current;
+    if (ep && markedListenedRef.current !== ep.id) {
+      const dur = status.durationMillis ?? 0;
+      if (status.didJustFinish || (dur > 0 && status.positionMillis / dur >= 0.9)) {
+        markedListenedRef.current = ep.id;
+        updateEpisode(ep.id, { listenedAt: Date.now() });
+      }
+    }
+  }, [updateEpisode]);
 
   const playEpisode = useCallback(
     async (episode: Episode) => {
@@ -195,6 +200,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setCurrentEpisode(episode);
       setPosition(0);
       setDuration(0);
+      markedListenedRef.current = null;
 
       const uri = episode.downloadedPath || episode.audioUrl;
       const { sound } = await Audio.Sound.createAsync(

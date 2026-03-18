@@ -103,6 +103,14 @@ export function EpisodeRow({ episode, onPress, onDownload, isPlaying }: EpisodeR
                 </Text>
               </View>
             )}
+            {!isPlaying && episode.listenedAt && (
+              <View style={[styles.listenedBadge, { backgroundColor: theme.textTertiary + "20" }]}>
+                <Feather name="check" size={10} color={theme.textSecondary} />
+                <Text style={[styles.listenedText, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+                  Listened
+                </Text>
+              </View>
+            )}
           </View>
           <Text
             style={[styles.title, { color: theme.text, fontFamily: "Inter_500Medium" }]}
@@ -222,6 +230,17 @@ const styles = StyleSheet.create({
     borderRadius: 2.5,
   },
   playingText: {
+    fontSize: 11,
+  },
+  listenedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    gap: 4,
+  },
+  listenedText: {
     fontSize: 11,
   },
   title: {

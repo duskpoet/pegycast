@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { AppState } from "react-native";
 import { htmlToText } from "@/utils/htmlToText";
 
 export interface Podcast {
@@ -35,6 +36,7 @@ export interface Episode {
   downloadedPath?: string;
   downloadProgress?: number;
   isDownloading?: boolean;
+  listenedAt?: number;
 }
 
 interface PodcastContextValue {
@@ -244,6 +246,28 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
     },
     [podcasts, episodes, saveEpisodes]
   );
+
+  const refreshAllFeeds = useCallback(async () => {
+    const currentPodcasts = podcasts;
+    if (currentPodcasts.length === 0) return;
+    await Promise.allSettled(currentPodcasts.map((p) => refreshFeed(p.id)));
+  }, [podcasts, refreshFeed]);
+
+  // Refresh all feeds on mount and when app comes to foreground
+  const hasLoadedRef = useRef(false);
+  useEffect(() => {
+    if (isLoading) return;
+    if (!hasLoadedRef.current) {
+      hasLoadedRef.current = true;
+      refreshAllFeeds();
+    }
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        refreshAllFeeds();
+      }
+    });
+    return () => sub.remove();
+  }, [isLoading, refreshAllFeeds]);
 
   const updateEpisode = useCallback(
     (episodeId: string, updates: Partial<Episode>) => {

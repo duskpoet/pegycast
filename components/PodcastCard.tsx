@@ -5,16 +5,26 @@ import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View, useColorScheme } from "react-native";
 
 import Colors from "@/constants/colors";
-import { Podcast } from "@/context/PodcastContext";
+import { Podcast, usePodcasts } from "@/context/PodcastContext";
 
 interface PodcastCardProps {
   podcast: Podcast;
   onLongPress?: () => void;
 }
 
+function formatDate(timestamp: number): string {
+  const date = new Date(timestamp);
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 export function PodcastCard({ podcast, onLongPress }: PodcastCardProps) {
   const colorScheme = useColorScheme();
   const theme = colorScheme === "dark" ? Colors.dark : Colors.light;
+  const { getEpisodesByPodcast } = usePodcasts();
+  const episodes = getEpisodesByPodcast(podcast.id);
+  const latestEpisode = episodes.length > 0
+    ? episodes.reduce((a, b) => (a.publishedAt > b.publishedAt ? a : b))
+    : null;
 
   const handlePress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -69,6 +79,21 @@ export function PodcastCard({ podcast, onLongPress }: PodcastCardProps) {
             {podcast.author}
           </Text>
         ) : null}
+        {latestEpisode && (
+          <View style={styles.latestRow}>
+            <Text style={[styles.latestDate, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
+              {formatDate(latestEpisode.publishedAt)}
+            </Text>
+            {latestEpisode.listenedAt && (
+              <View style={[styles.listenedBadge, { backgroundColor: theme.textTertiary + "20" }]}>
+                <Feather name="check" size={10} color={theme.textSecondary} />
+                <Text style={[styles.listenedText, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+                  Listened
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
       </View>
       <Feather name="chevron-right" size={18} color={theme.textTertiary} />
     </Pressable>
@@ -115,5 +140,25 @@ const styles = StyleSheet.create({
   author: {
     fontSize: 13,
     lineHeight: 17,
+  },
+  latestRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 2,
+  },
+  latestDate: {
+    fontSize: 12,
+  },
+  listenedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  listenedText: {
+    fontSize: 11,
   },
 });

@@ -96,12 +96,14 @@ function DownloadedEpisodeCard({ episode }: { episode: Episode }) {
               {formatDuration(episode.duration)}
             </Text>
           )}
-          <View style={[styles.downloadedBadge, { backgroundColor: Colors.primary + "15" }]}>
-            <Feather name="check" size={10} color={Colors.primary} />
-            <Text style={[styles.downloadedText, { color: Colors.primary, fontFamily: "Inter_500Medium" }]}>
-              Downloaded
-            </Text>
-          </View>
+          {episode.listenedAt && (
+            <View style={[styles.listenedBadge, { backgroundColor: theme.textTertiary + "20" }]}>
+              <Feather name="check" size={10} color={theme.textSecondary} />
+              <Text style={[styles.listenedText, { color: theme.textSecondary, fontFamily: "Inter_500Medium" }]}>
+                Listened
+              </Text>
+            </View>
+          )}
         </View>
       </View>
 
@@ -249,7 +251,7 @@ const styles = StyleSheet.create({
   metaText: {
     fontSize: 12,
   },
-  downloadedBadge: {
+  listenedBadge: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
@@ -257,7 +259,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
-  downloadedText: {
+  listenedText: {
     fontSize: 11,
   },
   actions: {
