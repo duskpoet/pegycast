@@ -23,6 +23,7 @@ import { MiniPlayer } from "@/components/MiniPlayer";
 import Colors from "@/constants/colors";
 import { usePodcasts } from "@/context/PodcastContext";
 import { usePlayer } from "@/context/PlayerContext";
+import { htmlToText } from "@/utils/htmlToText";
 
 export default function PodcastScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -44,6 +45,7 @@ export default function PodcastScreen() {
 
   const podcast = podcasts.find((p) => p.id === id);
   const episodes = getEpisodesByPodcast(id ?? "");
+
 
   const handleRefresh = async () => {
     if (!id) return;
@@ -205,7 +207,7 @@ export default function PodcastScreen() {
               <View style={[styles.descSection, { borderBottomColor: theme.border }]}>
                 <Collapsible expanded={showDetails} collapsedHeight={66}>
                   <Text style={[styles.description, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                    {podcast.description}
+                    {htmlToText(podcast.description)}
                   </Text>
                 </Collapsible>
                 <Collapsible expanded={showDetails}>

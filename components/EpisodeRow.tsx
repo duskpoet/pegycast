@@ -8,6 +8,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-na
 import { Collapsible } from "@/components/Collapsible";
 import Colors from "@/constants/colors";
 import { Episode } from "@/context/PodcastContext";
+import { htmlToText } from "@/utils/htmlToText";
 
 interface EpisodeRowProps {
   episode: Episode;
@@ -142,7 +143,7 @@ export function EpisodeRow({ episode, onPress, onDownload, isPlaying }: EpisodeR
             <View style={styles.expandedSection}>
               <Collapsible expanded={expanded} collapsedHeight={40}>
                 <Text style={[styles.episodeDescription, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-                  {episode.description}
+                  {htmlToText(episode.description)}
                 </Text>
               </Collapsible>
               <Collapsible expanded={expanded}>

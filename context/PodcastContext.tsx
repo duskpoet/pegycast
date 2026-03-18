@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { htmlToText } from "@/utils/htmlToText";
 
 export interface Podcast {
   id: string;
@@ -76,10 +77,12 @@ async function parseFeed(feedUrl: string): Promise<{
   const xml = await response.text();
 
   const getTagContent = (str: string, tag: string): string => {
-    const cdataMatch = str.match(new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]></${tag}>`, "i"));
+    const cdataMatch = str.match(new RegExp(`<${tag}[^>]*>\\s*<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>\\s*</${tag}>`, "i"));
     if (cdataMatch) return cdataMatch[1].trim();
     const match = str.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
-    return match ? match[1].trim() : "";
+    if (!match) return "";
+    // Strip any CDATA markers that slipped through
+    return match[1].replace(/^\s*<!\[CDATA\[/, "").replace(/\]\]>\s*$/, "").trim();
   };
 
   const getAttr = (str: string, attr: string): string => {
@@ -93,7 +96,7 @@ async function parseFeed(feedUrl: string): Promise<{
   const channelWithoutItems = channelXml.replace(/<item>[\s\S]*?<\/item>/gi, "");
 
   const title = getTagContent(channelWithoutItems, "title") || "Unknown Podcast";
-  const description = getTagContent(channelWithoutItems, "description") || "";
+  const description = htmlToText(getTagContent(channelWithoutItems, "description") || "");
   const author =
     getTagContent(channelWithoutItems, "itunes:author") ||
     getTagContent(channelWithoutItems, "managingEditor") ||
@@ -114,7 +117,7 @@ async function parseFeed(feedUrl: string): Promise<{
   for (const itemMatch of itemMatches.slice(0, 50)) {
     const item = itemMatch[1];
     const epTitle = getTagContent(item, "title") || "Untitled";
-    const epDescription = getTagContent(item, "description") || getTagContent(item, "itunes:summary") || "";
+    const epDescription = htmlToText(getTagContent(item, "description") || getTagContent(item, "itunes:summary") || "");
     const pubDateStr = getTagContent(item, "pubDate");
     const publishedAt = pubDateStr ? new Date(pubDateStr).getTime() : Date.now();
 
