@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
+import { XMLParser } from "fast-xml-parser";
 import {
   createContext,
   ReactNode,
@@ -10,7 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { AppState } from "react-native";
+import { AppState, InteractionManager } from "react-native";
 import { htmlToText } from "@/utils/htmlToText";
 
 export interface Podcast {
@@ -71,6 +72,23 @@ function parseDuration(duration: string | number): number {
   return parseInt(duration, 10) || 0;
 }
 
+const xmlParser = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@_",
+  textNodeName: "#text",
+  isArray: (name) => name === "item",
+  processEntities: false,
+});
+
+function str(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number") return String(value);
+  if (typeof value === "object" && "#text" in (value as Record<string, unknown>))
+    return str((value as Record<string, unknown>)["#text"]);
+  return "";
+}
+
 async function parseFeed(feedUrl: string): Promise<{
   podcast: Omit<Podcast, "id" | "subscribedAt">;
   episodes: Omit<Episode, "id" | "podcastId" | "downloadedPath" | "downloadProgress" | "isDownloading">[];
@@ -78,73 +96,48 @@ async function parseFeed(feedUrl: string): Promise<{
   const response = await fetch(feedUrl);
   const xml = await response.text();
 
-  const getTagContent = (str: string, tag: string): string => {
-    const cdataMatch = str.match(new RegExp(`<${tag}[^>]*>\\s*<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>\\s*</${tag}>`, "i"));
-    if (cdataMatch) return cdataMatch[1].trim();
-    const match = str.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
-    if (!match) return "";
-    // Strip any CDATA markers that slipped through
-    return match[1].replace(/^\s*<!\[CDATA\[/, "").replace(/\]\]>\s*$/, "").trim();
-  };
+  const parsed = xmlParser.parse(xml);
+  const channel = parsed?.rss?.channel ?? parsed?.feed ?? {};
 
-  const getAttr = (str: string, attr: string): string => {
-    const match = str.match(new RegExp(`${attr}="([^"]*)"`, "i"));
-    return match ? match[1] : "";
-  };
+  const title = str(channel.title) || "Unknown Podcast";
+  const description = htmlToText(str(channel.description) || "");
+  const author = str(channel["itunes:author"]) || str(channel.managingEditor) || "";
 
-  const channelMatch = xml.match(/<channel>([\s\S]*?)<\/channel>/i);
-  const channelXml = channelMatch ? channelMatch[1] : xml;
-
-  const channelWithoutItems = channelXml.replace(/<item>[\s\S]*?<\/item>/gi, "");
-
-  const title = getTagContent(channelWithoutItems, "title") || "Unknown Podcast";
-  const description = htmlToText(getTagContent(channelWithoutItems, "description") || "");
-  const author =
-    getTagContent(channelWithoutItems, "itunes:author") ||
-    getTagContent(channelWithoutItems, "managingEditor") ||
+  const itunesImage = channel["itunes:image"];
+  const channelImage = channel.image;
+  const imageUrl =
+    (itunesImage ? str(itunesImage["@_href"]) || str(itunesImage) : "") ||
+    (channelImage ? str(channelImage.url) || str(channelImage["@_href"]) : "") ||
     "";
 
-  const imageUrlFromTag =
-    getTagContent(channelWithoutItems, "itunes:image") ||
-    channelWithoutItems.match(/<image[^>]*href="([^"]*)"[^>]*\/?>/i)?.[1] ||
-    "";
-  const itunesImageMatch = channelWithoutItems.match(/<itunes:image[^>]*href="([^"]*)"[^>]*\/?>/i);
-  const imageUrlFromAttr = itunesImageMatch ? itunesImageMatch[1] : "";
-  const imageUrlFromChannel = channelWithoutItems.match(/<image>[\s\S]*?<url>([\s\S]*?)<\/url>/i)?.[1] || "";
-  const imageUrl = imageUrlFromAttr || imageUrlFromTag || imageUrlFromChannel;
+  const items: unknown[] = Array.isArray(channel.item) ? channel.item : channel.item ? [channel.item] : [];
 
-  const itemMatches = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/gi)];
   const episodes: Omit<Episode, "id" | "podcastId" | "downloadedPath" | "downloadProgress" | "isDownloading">[] = [];
 
-  for (const itemMatch of itemMatches.slice(0, 50)) {
-    const item = itemMatch[1];
-    const epTitle = getTagContent(item, "title") || "Untitled";
-    const epDescription = htmlToText(getTagContent(item, "description") || getTagContent(item, "itunes:summary") || "");
-    const pubDateStr = getTagContent(item, "pubDate");
+  for (const item of items.slice(0, 50) as Record<string, unknown>[]) {
+    const enclosure = item.enclosure as Record<string, unknown> | undefined;
+    const audioUrl = enclosure ? str(enclosure["@_url"]) : "";
+    if (!audioUrl) continue;
+
+    const epTitle = str(item.title) || "Untitled";
+    const epDescription = htmlToText(str(item.description) || str(item["itunes:summary"]) || "");
+    const pubDateStr = str(item.pubDate);
     const publishedAt = pubDateStr ? new Date(pubDateStr).getTime() : Date.now();
+    const fileSize = enclosure ? parseInt(str(enclosure["@_length"]), 10) || 0 : 0;
+    const duration = parseDuration(str(item["itunes:duration"]));
 
-    const enclosureMatch = item.match(/<enclosure[^>]*>/i);
-    const audioUrl = enclosureMatch ? getAttr(enclosureMatch[0], "url") : "";
-    const fileSizeStr = enclosureMatch ? getAttr(enclosureMatch[0], "length") : "0";
-    const fileSize = parseInt(fileSizeStr, 10) || 0;
+    const epItunesImage = item["itunes:image"] as Record<string, unknown> | undefined;
+    const epImageUrl = epItunesImage ? str(epItunesImage["@_href"]) || str(epItunesImage) : imageUrl;
 
-    const durationStr = getTagContent(item, "itunes:duration");
-    const duration = parseDuration(durationStr);
-
-    const epItunesImageMatch = item.match(/<itunes:image[^>]*href="([^"]*)"[^>]*\/?>/i);
-    const epImageUrl = epItunesImageMatch ? epItunesImageMatch[1] : imageUrl;
-
-    if (audioUrl) {
-      episodes.push({
-        title: epTitle,
-        description: epDescription,
-        audioUrl,
-        imageUrl: epImageUrl,
-        publishedAt,
-        duration,
-        fileSize,
-      });
-    }
+    episodes.push({
+      title: epTitle,
+      description: epDescription,
+      audioUrl,
+      imageUrl: epImageUrl,
+      publishedAt,
+      duration,
+      fileSize,
+    });
   }
 
   return {
@@ -158,6 +151,10 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
   const [episodes, setEpisodes] = useState<Record<string, Episode[]>>({});
   const [isLoading, setIsLoading] = useState(true);
   const downloadTasksRef = useRef<Record<string, FileSystem.DownloadResumable>>({});
+  const podcastsRef = useRef(podcasts);
+  podcastsRef.current = podcasts;
+  const episodesRef = useRef(episodes);
+  episodesRef.current = episodes;
 
   useEffect(() => {
     const load = async () => {
@@ -229,29 +226,36 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
 
   const refreshFeed = useCallback(
     async (podcastId: string) => {
-      const podcast = podcasts.find((p) => p.id === podcastId);
+      const podcast = podcastsRef.current.find((p) => p.id === podcastId);
       if (!podcast) return;
       const { episodes: eps } = await parseFeed(podcast.feedUrl);
-      const existingEps = episodes[podcastId] || [];
-      const existingUrls = new Set(existingEps.map((e) => e.audioUrl));
-      const newEpisodes: Episode[] = eps
-        .filter((ep) => !existingUrls.has(ep.audioUrl))
-        .map((ep) => ({ ...ep, id: generateId(), podcastId }));
-      const updated = [...newEpisodes, ...existingEps];
       setEpisodes((prev) => {
-        const updatedEps = { ...prev, [podcastId]: updated };
+        const existingEps = prev[podcastId] || [];
+        const existingUrls = new Set(existingEps.map((e) => e.audioUrl));
+        const newEpisodes: Episode[] = eps
+          .filter((ep) => !existingUrls.has(ep.audioUrl))
+          .map((ep) => ({ ...ep, id: generateId(), podcastId }));
+        if (newEpisodes.length === 0) return prev;
+        const updatedEps = { ...prev, [podcastId]: [...newEpisodes, ...existingEps] };
         saveEpisodes(updatedEps);
         return updatedEps;
       });
     },
-    [podcasts, episodes, saveEpisodes]
+    [saveEpisodes]
   );
 
   const refreshAllFeeds = useCallback(async () => {
-    const currentPodcasts = podcasts;
+    const currentPodcasts = podcastsRef.current;
     if (currentPodcasts.length === 0) return;
-    await Promise.allSettled(currentPodcasts.map((p) => refreshFeed(p.id)));
-  }, [podcasts, refreshFeed]);
+    // Refresh feeds sequentially to avoid flooding the JS thread
+    for (const p of currentPodcasts) {
+      try {
+        await refreshFeed(p.id);
+      } catch (e) {
+        console.error("Failed to refresh feed", p.id, e);
+      }
+    }
+  }, [refreshFeed]);
 
   // Refresh all feeds on mount and when app comes to foreground
   const hasLoadedRef = useRef(false);
@@ -259,7 +263,9 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
     if (isLoading) return;
     if (!hasLoadedRef.current) {
       hasLoadedRef.current = true;
-      refreshAllFeeds();
+      InteractionManager.runAfterInteractions(() => {
+        refreshAllFeeds();
+      });
     }
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") {

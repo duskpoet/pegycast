@@ -157,7 +157,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               position: savedPos,
               isPlaying: false,
             });
-          });
+          }).catch(console.error);
         }
       })
       .catch(console.error);
@@ -230,45 +230,65 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   const togglePlayPause = useCallback(async () => {
     if (!soundRef.current) return;
-    const status = await soundRef.current.getStatusAsync();
-    if (!status.isLoaded) return;
-    if (status.isPlaying) {
-      await soundRef.current.pauseAsync();
-    } else {
-      await soundRef.current.playAsync();
+    try {
+      const status = await soundRef.current.getStatusAsync();
+      if (!status.isLoaded) return;
+      if (status.isPlaying) {
+        await soundRef.current.pauseAsync();
+      } else {
+        await soundRef.current.playAsync();
+      }
+    } catch (e) {
+      console.error("togglePlayPause failed", e);
     }
   }, []);
 
   const seek = useCallback(async (positionSecs: number) => {
     if (!soundRef.current) return;
-    await soundRef.current.setPositionAsync(positionSecs * 1000);
-    setPosition(positionSecs);
+    try {
+      await soundRef.current.setPositionAsync(positionSecs * 1000);
+      setPosition(positionSecs);
+    } catch (e) {
+      console.error("seek failed", e);
+    }
   }, []);
 
   const handleSkipForward = useCallback(async () => {
     if (!soundRef.current) return;
-    const status = await soundRef.current.getStatusAsync();
-    if (!status.isLoaded) return;
-    const newPos = Math.min(
-      (status.positionMillis + 30000) / 1000,
-      durationRef.current
-    );
-    await soundRef.current.setPositionAsync(newPos * 1000);
-    setPosition(newPos);
+    try {
+      const status = await soundRef.current.getStatusAsync();
+      if (!status.isLoaded) return;
+      const newPos = Math.min(
+        (status.positionMillis + 30000) / 1000,
+        durationRef.current
+      );
+      await soundRef.current.setPositionAsync(newPos * 1000);
+      setPosition(newPos);
+    } catch (e) {
+      console.error("skipForward failed", e);
+    }
   }, []);
 
   const handleSkipBackward = useCallback(async () => {
     if (!soundRef.current) return;
-    const status = await soundRef.current.getStatusAsync();
-    if (!status.isLoaded) return;
-    const newPos = Math.max((status.positionMillis - 15000) / 1000, 0);
-    await soundRef.current.setPositionAsync(newPos * 1000);
-    setPosition(newPos);
+    try {
+      const status = await soundRef.current.getStatusAsync();
+      if (!status.isLoaded) return;
+      const newPos = Math.max((status.positionMillis - 15000) / 1000, 0);
+      await soundRef.current.setPositionAsync(newPos * 1000);
+      setPosition(newPos);
+    } catch (e) {
+      console.error("skipBackward failed", e);
+    }
   }, []);
 
   const stopPlayback = useCallback(async () => {
     if (soundRef.current) {
-      await soundRef.current.unloadAsync();
+      try {
+        await soundRef.current.unloadAsync();
+      } catch (e) {
+        console.error("stopPlayback unload failed", e);
+      }
       soundRef.current = null;
     }
     setCurrentEpisode(null);
