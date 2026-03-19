@@ -91,6 +91,11 @@ function DownloadedEpisodeCard({ episode }: { episode: Episode }) {
           {episode.title}
         </Text>
         <View style={styles.episodeMeta}>
+          {episode.publishedAt > 0 && (
+            <Text style={[styles.metaText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
+              {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(episode.publishedAt))}
+            </Text>
+          )}
           {episode.duration > 0 && (
             <Text style={[styles.metaText, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
               {formatDuration(episode.duration)}
@@ -132,7 +137,7 @@ export default function DownloadsScreen() {
 
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : 0;
-  const downloadedEpisodes = getDownloadedEpisodes();
+  const downloadedEpisodes = getDownloadedEpisodes().sort((a, b) => a.publishedAt - b.publishedAt);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
