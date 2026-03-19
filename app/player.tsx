@@ -307,7 +307,7 @@ export default function PlayerScreen() {
                   <View style={styles.detailsRow}>
                     <Feather name="calendar" size={13} color={theme.textTertiary} />
                     <Text style={[styles.detailsMetaText, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
-                      {new Date(currentEpisode.publishedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                      {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium"}).format(new Date(currentEpisode.publishedAt))}
                     </Text>
                   </View>
                 )}

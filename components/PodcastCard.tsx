@@ -71,14 +71,6 @@ export function PodcastCard({ podcast, onLongPress }: PodcastCardProps) {
         >
           {podcast.title}
         </Text>
-        {podcast.author ? (
-          <Text
-            style={[styles.author, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}
-            numberOfLines={1}
-          >
-            {podcast.author}
-          </Text>
-        ) : null}
         {latestEpisode && (
           <View style={styles.latestRow}>
             <Text style={[styles.latestDate, { color: theme.textTertiary, fontFamily: "Inter_400Regular" }]}>
