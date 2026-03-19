@@ -30,7 +30,7 @@ export default function PodcastScreen() {
   const colorScheme = useColorScheme();
   const theme = colorScheme === "dark" ? Colors.dark : Colors.light;
   const insets = useSafeAreaInsets();
-  const { podcasts, getEpisodesByPodcast, downloadEpisode, deleteDownload, refreshFeed } =
+  const { podcasts, getEpisodesByPodcast, downloadEpisode, deleteDownload, refreshFeed, removePodcast } =
     usePodcasts();
   const { currentEpisode, playEpisode } = usePlayer();
   const [refreshing, setRefreshing] = useState(false);
@@ -46,6 +46,26 @@ export default function PodcastScreen() {
   const podcast = podcasts.find((p) => p.id === id);
   const episodes = getEpisodesByPodcast(id ?? "");
 
+
+  const handleUnsubscribe = () => {
+    if (!podcast) return;
+    Alert.alert(
+      "Unsubscribe",
+      `Remove "${podcast.title}" from your library?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Unsubscribe",
+          style: "destructive",
+          onPress: () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            removePodcast(podcast.id);
+            router.back();
+          },
+        },
+      ],
+    );
+  };
 
   const handleRefresh = async () => {
     if (!id) return;
@@ -151,7 +171,7 @@ export default function PodcastScreen() {
         ListHeaderComponent={
           <View>
             <View style={[styles.hero, { paddingTop: topPad }]}>
-              <View style={styles.heroOverlay}>
+              <View style={[styles.heroOverlay, { paddingTop: topPad + 8 }]}>
                 <Pressable
                   onPress={() => router.back()}
                   style={({ pressed }) => [
@@ -160,6 +180,16 @@ export default function PodcastScreen() {
                   ]}
                 >
                   <Feather name="chevron-left" size={24} color="#fff" />
+                </Pressable>
+                <View style={{ flex: 1 }} />
+                <Pressable
+                  onPress={handleUnsubscribe}
+                  style={({ pressed }) => [
+                    styles.backBtn,
+                    { backgroundColor: "rgba(0,0,0,0.4)", opacity: pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <Feather name="user-minus" size={20} color="#fff" />
                 </Pressable>
               </View>
               {podcast.imageUrl ? (
@@ -299,7 +329,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
     flexDirection: "row",
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 0,
   },
   backBtn: {
     width: 40,
