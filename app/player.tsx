@@ -177,7 +177,6 @@ export default function PlayerScreen() {
   const { currentEpisode, isPlaying, position, duration, togglePlayPause, seek, skipForward, skipBackward, stop } =
     usePlayer();
   const { podcasts } = usePodcasts();
-  const playScale = useSharedValue(1);
   const [showDetails, setShowDetails] = useState(false);
 
   const toggleDetails = useCallback(() => {
@@ -194,19 +193,12 @@ export default function PlayerScreen() {
     }
   }, [currentEpisode]);
 
-  const playBtnStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: playScale.value }],
-  }));
-
   if (!currentEpisode) return null;
 
   const podcast = podcasts.find((p) => p.id === currentEpisode.podcastId);
 
   const handlePlayPause = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    playScale.value = withSpring(0.9, { duration: 100 }, () => {
-      playScale.value = withSpring(1);
-    });
     togglePlayPause();
   };
 
@@ -259,22 +251,50 @@ export default function PlayerScreen() {
         contentContainerStyle={styles.scrollContentContainer}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.artworkContainer}>
-          {currentEpisode.imageUrl ? (
-            <Image
-              source={{ uri: currentEpisode.imageUrl }}
-              style={styles.artwork}
-              contentFit="cover"
-              transition={300}
-            />
-          ) : (
-            <View style={[styles.artworkPlaceholder, { backgroundColor: theme.card }]}>
-              <Feather name="headphones" size={80} color={Colors.primary} />
+        <View style={styles.artworkRow}>
+          <Pressable
+            onPress={handleSkipBwd}
+            style={({ pressed }) => [
+              styles.sideZone,
+              { borderColor: theme.border },
+              pressed && { backgroundColor: theme.card },
+            ]}
+          >
+            <Feather name="rotate-ccw" size={18} color={theme.textTertiary} />
+            <Text style={[styles.sideZoneLabel, { color: theme.textTertiary }]}>15</Text>
+          </Pressable>
+          <View style={[styles.artworkWrapper, isPlaying && styles.artworkGlowOuter]}>
+            <View style={[styles.artworkWrapper, isPlaying && styles.artworkGlowInner]}>
+              <Pressable
+                onPress={handlePlayPause}
+                style={({ pressed }) => [styles.artworkContainer, pressed && { opacity: 0.7 }]}
+              >
+                {currentEpisode.imageUrl ? (
+                  <Image
+                    source={{ uri: currentEpisode.imageUrl }}
+                    style={styles.artwork}
+                    contentFit="cover"
+                    transition={300}
+                  />
+                ) : (
+                  <View style={[styles.artworkPlaceholder, { backgroundColor: theme.card }]}>
+                    <Feather name="headphones" size={80} color={Colors.primary} />
+                  </View>
+                )}
+              </Pressable>
             </View>
-          )}
-          {isPlaying && (
-            <View style={[styles.playingRing, { borderColor: Colors.primary }]} />
-          )}
+          </View>
+          <Pressable
+            onPress={handleSkipFwd}
+            style={({ pressed }) => [
+              styles.sideZone,
+              { borderColor: theme.border },
+              pressed && { backgroundColor: theme.card },
+            ]}
+          >
+            <Feather name="rotate-cw" size={18} color={theme.textTertiary} />
+            <Text style={[styles.sideZoneLabel, { color: theme.textTertiary }]}>30</Text>
+          </Pressable>
         </View>
 
         <View style={styles.episodeInfo}>
@@ -296,7 +316,7 @@ export default function PlayerScreen() {
 
         {currentEpisode.description ? (
           <View style={styles.detailsSection}>
-            <Collapsible expanded={showDetails} collapsedHeight={44}>
+            <Collapsible expanded={showDetails} collapsedHeight={110}>
               <Text style={[styles.detailsDescription, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
                 {currentEpisode.description}
               </Text>
@@ -333,44 +353,6 @@ export default function PlayerScreen() {
         ) : null}
 
         <ProgressBar position={position} duration={duration} onSeek={seek} />
-
-        <View style={styles.controls}>
-          <Pressable
-            onPress={handleSkipBwd}
-            style={({ pressed }) => [styles.skipBtn, { opacity: pressed ? 0.6 : 1 }]}
-            hitSlop={12}
-          >
-            <Feather name="rotate-ccw" size={24} color={theme.text} />
-            <Text style={[styles.skipLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              15
-            </Text>
-          </Pressable>
-
-          <Animated.View style={playBtnStyle}>
-            <Pressable
-              onPress={handlePlayPause}
-              style={[styles.playBtn, { backgroundColor: Colors.primary }]}
-            >
-              <Feather
-                name={isPlaying ? "pause" : "play"}
-                size={32}
-                color="#fff"
-                style={isPlaying ? undefined : { marginLeft: 4 }}
-              />
-            </Pressable>
-          </Animated.View>
-
-          <Pressable
-            onPress={handleSkipFwd}
-            style={({ pressed }) => [styles.skipBtn, { opacity: pressed ? 0.6 : 1 }]}
-            hitSlop={12}
-          >
-            <Feather name="rotate-cw" size={24} color={theme.text} />
-            <Text style={[styles.skipLabel, { color: theme.textSecondary, fontFamily: "Inter_400Regular" }]}>
-              30
-            </Text>
-          </Pressable>
-        </View>
       </ScrollView>
     </View>
   );
@@ -411,9 +393,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  artworkWrapper: {
+    borderRadius: 20,
+    backgroundColor: Colors.primary,
+  },
+  artworkGlowOuter: {
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 24,
+    elevation: 24,
+  },
+  artworkGlowInner: {
+    shadowColor: Colors.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.9,
+    shadowRadius: 12,
+    elevation: 12,
+  },
   artworkContainer: {
     position: "relative",
-    marginBottom: 32,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -429,14 +428,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  playingRing: {
-    position: "absolute",
-    width: 280,
-    height: 280,
-    borderRadius: 24,
-    borderWidth: 2,
-    opacity: 0.4,
-  },
   episodeInfo: {
     width: "100%",
     gap: 6,
@@ -451,38 +442,27 @@ const styles = StyleSheet.create({
     fontSize: 22,
     lineHeight: 30,
   },
-  controls: {
+  artworkRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 36,
-    marginTop: 32,
     width: "100%",
+    marginBottom: 32,
+    marginTop: 16,
   },
-  skipBtn: {
-    alignItems: "center",
-    justifyContent: "center",
-    position: "relative",
+  sideZone: {
     width: 48,
-    height: 48,
-  },
-  skipLabel: {
-    position: "absolute",
-    fontSize: 9,
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    textAlign: "center",
-    textAlignVertical: "center",
-    lineHeight: 48,
-  },
-  playBtn: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    alignSelf: "stretch",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
+    borderRadius: 16,
+    marginHorizontal: 4,
+  },
+  sideZoneLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+    marginTop: -1,
   },
   detailsSection: {
     width: "100%",
