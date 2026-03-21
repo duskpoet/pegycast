@@ -11,7 +11,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { AppState, InteractionManager } from "react-native";
 import { htmlToText } from "@/utils/htmlToText";
 
 export interface Podcast {
@@ -153,8 +152,6 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
   const downloadTasksRef = useRef<Record<string, FileSystem.DownloadResumable>>({});
   const podcastsRef = useRef(podcasts);
   podcastsRef.current = podcasts;
-  const episodesRef = useRef(episodes);
-  episodesRef.current = episodes;
 
   useEffect(() => {
     const load = async () => {
@@ -244,36 +241,6 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
     [saveEpisodes]
   );
 
-  const refreshAllFeeds = useCallback(async () => {
-    const currentPodcasts = podcastsRef.current;
-    if (currentPodcasts.length === 0) return;
-    // Refresh feeds sequentially to avoid flooding the JS thread
-    for (const p of currentPodcasts) {
-      try {
-        await refreshFeed(p.id);
-      } catch (e) {
-        console.error("Failed to refresh feed", p.id, e);
-      }
-    }
-  }, [refreshFeed]);
-
-  // Refresh all feeds on mount and when app comes to foreground
-  const hasLoadedRef = useRef(false);
-  useEffect(() => {
-    if (isLoading) return;
-    if (!hasLoadedRef.current) {
-      hasLoadedRef.current = true;
-      InteractionManager.runAfterInteractions(() => {
-        refreshAllFeeds();
-      });
-    }
-    const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") {
-        refreshAllFeeds();
-      }
-    });
-    return () => sub.remove();
-  }, [isLoading, refreshAllFeeds]);
 
   const updateEpisode = useCallback(
     (episodeId: string, updates: Partial<Episode>) => {
