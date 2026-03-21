@@ -1,16 +1,16 @@
 {
   "expo": {
-    "name": "podcaster",
-    "slug": "podcaster",
+    "name": "Pegycast",
+    "slug": "pegycast",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "podcaster",
+    "scheme": "pegycast",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.podcaster",
+      "bundleIdentifier": "com.anonymous.pegycast",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -19,12 +19,12 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/images/icon.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.podcaster"
+      "package": "com.anonymous.pegycast"
     },
     "web": {
       "output": "static",
