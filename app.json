@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.pegycast",
+      "bundleIdentifier": "com.eduarddykman.pegycast",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -24,7 +24,8 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.pegycast"
+      "package": "com.eduarddykman.pegycast",
+      "usesCleartextTraffic": true
     },
     "web": {
       "output": "static",

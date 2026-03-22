@@ -57,6 +57,7 @@ export function AddFeedSheet({ visible, onClose }: AddFeedSheetProps) {
       onClose();
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e) {
+    console.error(e)
       Alert.alert("Error", "Could not load this feed. Please check the URL and try again.");
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
