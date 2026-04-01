@@ -45,7 +45,8 @@
           }
         }
       ],
-      "expo-background-task"
+      "expo-background-task",
+      "./modules/feed-parser/app.plugin.js"
     ],
     "experiments": {
       "typedRoutes": true,

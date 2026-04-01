@@ -17,7 +17,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PlayerProvider } from "@/context/PlayerContext";
 import { PodcastProvider } from "@/context/PodcastContext";
-import { registerFeedRefreshTask } from "@/tasks/refreshFeeds";
+import { registerFeedRefreshTask, refreshAllFeeds } from "@/tasks/refreshFeeds";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -56,6 +56,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     registerFeedRefreshTask();
+    refreshAllFeeds();
   }, []);
 
   if (!fontsLoaded && !fontError) return null;

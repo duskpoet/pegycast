@@ -1,6 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
-import { XMLParser } from "fast-xml-parser";
 import {
   createContext,
   ReactNode,
@@ -11,7 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { htmlToText } from "@/utils/htmlToText";
+import { parseFeed as nativeParseFeed } from "@/modules/feed-parser/src";
 
 export interface Podcast {
   id: string;
@@ -62,86 +61,20 @@ function generateId(): string {
   return Date.now().toString() + Math.random().toString(36).substr(2, 9);
 }
 
-function parseDuration(duration: string | number): number {
-  if (typeof duration === "number") return duration;
-  if (!duration) return 0;
-  const parts = duration.split(":").map(Number);
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  return parseInt(duration, 10) || 0;
-}
-
-const xmlParser = new XMLParser({
-  ignoreAttributes: false,
-  attributeNamePrefix: "@_",
-  textNodeName: "#text",
-  isArray: (name) => name === "item",
-  processEntities: false,
-});
-
-function str(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return value.trim();
-  if (typeof value === "number") return String(value);
-  if (typeof value === "object" && "#text" in (value as Record<string, unknown>))
-    return str((value as Record<string, unknown>)["#text"]);
-  return "";
-}
-
 async function parseFeed(feedUrl: string): Promise<{
   podcast: Omit<Podcast, "id" | "subscribedAt">;
   episodes: Omit<Episode, "id" | "podcastId" | "downloadedPath" | "downloadProgress" | "isDownloading">[];
 }> {
-  const response = await fetch(feedUrl);
-  const xml = await response.text();
-
-  const parsed = xmlParser.parse(xml);
-  const channel = parsed?.rss?.channel ?? parsed?.feed ?? {};
-
-  const title = str(channel.title) || "Unknown Podcast";
-  const description = htmlToText(str(channel.description) || "");
-  const author = str(channel["itunes:author"]) || str(channel.managingEditor) || "";
-
-  const itunesImage = channel["itunes:image"];
-  const channelImage = channel.image;
-  const imageUrl =
-    (itunesImage ? str(itunesImage["@_href"]) || str(itunesImage) : "") ||
-    (channelImage ? str(channelImage.url) || str(channelImage["@_href"]) : "") ||
-    "";
-
-  const items: unknown[] = Array.isArray(channel.item) ? channel.item : channel.item ? [channel.item] : [];
-
-  const episodes: Omit<Episode, "id" | "podcastId" | "downloadedPath" | "downloadProgress" | "isDownloading">[] = [];
-
-  for (const item of items.slice(0, 50) as Record<string, unknown>[]) {
-    const enclosure = item.enclosure as Record<string, unknown> | undefined;
-    const audioUrl = enclosure ? str(enclosure["@_url"]) : "";
-    if (!audioUrl) continue;
-
-    const epTitle = str(item.title) || "Untitled";
-    const epDescription = htmlToText(str(item.description) || str(item["itunes:summary"]) || "");
-    const pubDateStr = str(item.pubDate);
-    const publishedAt = pubDateStr ? new Date(pubDateStr).getTime() : Date.now();
-    const fileSize = enclosure ? parseInt(str(enclosure["@_length"]), 10) || 0 : 0;
-    const duration = parseDuration(str(item["itunes:duration"]));
-
-    const epItunesImage = item["itunes:image"] as Record<string, unknown> | undefined;
-    const epImageUrl = epItunesImage ? str(epItunesImage["@_href"]) || str(epItunesImage) : imageUrl;
-
-    episodes.push({
-      title: epTitle,
-      description: epDescription,
-      audioUrl,
-      imageUrl: epImageUrl,
-      publishedAt,
-      duration,
-      fileSize,
-    });
-  }
-
+  const feed = await nativeParseFeed(feedUrl);
   return {
-    podcast: { feedUrl, title, description, imageUrl, author },
-    episodes,
+    podcast: {
+      feedUrl,
+      title: feed.title || "Unknown Podcast",
+      description: feed.description,
+      imageUrl: feed.imageUrl,
+      author: feed.author,
+    },
+    episodes: feed.episodes,
   };
 }
 
