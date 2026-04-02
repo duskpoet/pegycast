@@ -15,6 +15,8 @@ import * as MediaSession from "../modules/media-session/src";
 import { Episode, usePodcasts } from "./PodcastContext";
 
 const STORAGE_KEY = "player_state";
+const POSITIONS_KEY = "episode_positions";
+const MAX_SAVED_POSITIONS = 500;
 
 interface PlayerContextValue {
   currentEpisode: Episode | null;
@@ -43,6 +45,26 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const isPlayingRef = useRef(false);
   const durationRef = useRef(0);
   const markedListenedRef = useRef<string | null>(null);
+  const positionsRef = useRef<Record<string, { pos: number; ts: number }>>({});
+
+  const persistState = useCallback(() => {
+    const ep = episodeRef.current;
+    const pos = positionRef.current;
+    if (!ep) return;
+    positionsRef.current[ep.id] = { pos, ts: Date.now() };
+    // Prune least-recently-used entries
+    const keys = Object.keys(positionsRef.current);
+    if (keys.length > MAX_SAVED_POSITIONS) {
+      keys.sort((a, b) => positionsRef.current[a].ts - positionsRef.current[b].ts);
+      for (let i = 0; i < keys.length - MAX_SAVED_POSITIONS; i++) {
+        delete positionsRef.current[keys[i]];
+      }
+    }
+    AsyncStorage.multiSet([
+      [STORAGE_KEY, JSON.stringify({ episode: ep, position: pos })],
+      [POSITIONS_KEY, JSON.stringify(positionsRef.current)],
+    ]).catch(console.error);
+  }, []);
 
   useEffect(() => {
     positionRef.current = position;
@@ -69,16 +91,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   // Save playback state periodically
   useEffect(() => {
-    const interval = setInterval(() => {
-      const ep = episodeRef.current;
-      const pos = positionRef.current;
-      if (ep) {
-        AsyncStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({ episode: ep, position: pos })
-        ).catch(console.error);
-      }
-    }, 5000);
+    const interval = setInterval(persistState, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -130,47 +143,43 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       shouldDuckAndroid: true,
     }).catch(console.error);
 
-    // Restore saved playback state
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((raw) => {
-        if (!raw) return;
-        const { episode, position: savedPos } = JSON.parse(raw) as {
-          episode: Episode;
-          position: number;
-        };
-        if (episode) {
-          setCurrentEpisode(episode);
-          setPosition(savedPos);
-          const uri = episode.downloadedPath || episode.audioUrl;
-          Audio.Sound.createAsync(
-            { uri },
-            { shouldPlay: false, positionMillis: savedPos * 1000 },
-            onPlaybackStatusUpdate
-          ).then(({ sound }) => {
-            soundRef.current = sound;
-            // Set now playing info for restored episode
-            MediaSession.updateNowPlaying({
-              title: episode.title,
-              artist: "Podcast",
-              artwork: episode.imageUrl,
-              duration: episode.duration || 0,
-              position: savedPos,
-              isPlaying: false,
-            });
-          }).catch(console.error);
+    // Load positions first, then restore playback state using them
+    AsyncStorage.multiGet([POSITIONS_KEY, STORAGE_KEY])
+      .then(([[, posRaw], [, stateRaw]]) => {
+        if (posRaw) {
+          try { positionsRef.current = JSON.parse(posRaw); } catch (e) { console.error("Failed to parse positions", e); }
         }
+        if (!stateRaw) return;
+        let episode: Episode, savedPos: number;
+        try {
+          ({ episode, position: savedPos } = JSON.parse(stateRaw));
+        } catch (e) { console.error("Failed to parse player state", e); return; }
+        if (!episode) return;
+        // Use positions map as source of truth over stale STORAGE_KEY
+        savedPos = positionsRef.current[episode.id]?.pos ?? savedPos;
+        setCurrentEpisode(episode);
+        setPosition(savedPos);
+        const uri = episode.downloadedPath || episode.audioUrl;
+        Audio.Sound.createAsync(
+          { uri },
+          { shouldPlay: false, positionMillis: savedPos * 1000 },
+          onPlaybackStatusUpdate
+        ).then(({ sound }) => {
+          soundRef.current = sound;
+          MediaSession.updateNowPlaying({
+            title: episode.title,
+            artist: "Podcast",
+            artwork: episode.imageUrl,
+            duration: episode.duration || 0,
+            position: savedPos,
+            isPlaying: false,
+          });
+        }).catch(console.error);
       })
       .catch(console.error);
 
     return () => {
-      const ep = episodeRef.current;
-      const pos = positionRef.current;
-      if (ep) {
-        AsyncStorage.setItem(
-          STORAGE_KEY,
-          JSON.stringify({ episode: ep, position: pos })
-        ).catch(console.error);
-      }
+      persistState();
       soundRef.current?.unloadAsync().catch(console.error);
       MediaSession.clearNowPlaying();
     };
@@ -187,25 +196,35 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (status.didJustFinish || (dur > 0 && status.positionMillis / dur >= 0.9)) {
         markedListenedRef.current = ep.id;
         updateEpisode(ep.id, { listenedAt: Date.now() });
+        delete positionsRef.current[ep.id];
       }
     }
   }, [updateEpisode]);
 
   const playEpisode = useCallback(
     async (episode: Episode) => {
+      // Save outgoing episode position
+      const prevEp = episodeRef.current;
+      const prevPos = positionRef.current;
+      if (prevEp) {
+        positionsRef.current[prevEp.id] = { pos: prevPos, ts: Date.now() };
+      }
+
       if (soundRef.current) {
         await soundRef.current.unloadAsync();
         soundRef.current = null;
       }
+
+      const savedPos = positionsRef.current[episode.id]?.pos ?? 0;
       setCurrentEpisode(episode);
-      setPosition(0);
+      setPosition(savedPos);
       setDuration(0);
       markedListenedRef.current = null;
 
       const uri = episode.downloadedPath || episode.audioUrl;
       const { sound } = await Audio.Sound.createAsync(
         { uri },
-        { shouldPlay: true },
+        { shouldPlay: true, positionMillis: savedPos * 1000 },
         onPlaybackStatusUpdate
       );
       soundRef.current = sound;
@@ -216,13 +235,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         artist: "Podcast",
         artwork: episode.imageUrl,
         duration: episode.duration || 0,
-        position: 0,
+        position: savedPos,
         isPlaying: true,
       });
 
+      // Persist outgoing position saved above (episodeRef still points to prevEp)
       AsyncStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ episode, position: 0 })
+        POSITIONS_KEY,
+        JSON.stringify(positionsRef.current)
       ).catch(console.error);
     },
     [onPlaybackStatusUpdate]
@@ -283,6 +303,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const stopPlayback = useCallback(async () => {
+    // Save position to positions map (STORAGE_KEY is removed below since playback is stopping)
+    const ep = episodeRef.current;
+    if (ep) {
+      positionsRef.current[ep.id] = { pos: positionRef.current, ts: Date.now() };
+      AsyncStorage.setItem(
+        POSITIONS_KEY,
+        JSON.stringify(positionsRef.current)
+      ).catch(console.error);
+    }
+
     if (soundRef.current) {
       try {
         await soundRef.current.unloadAsync();
