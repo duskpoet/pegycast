@@ -16,6 +16,7 @@ function generateId(): string {
 export async function refreshAllFeeds() {
   const podcastsStr = await AsyncStorage.getItem(STORAGE_KEY_PODCASTS);
   const episodesStr = await AsyncStorage.getItem(STORAGE_KEY_EPISODES);
+  console.log('[PEGYCASTLOG] refreshAllFeeds', podcastsStr, episodesStr);
   if (!podcastsStr) return;
 
   const podcasts: Podcast[] = JSON.parse(podcastsStr);
@@ -27,6 +28,7 @@ export async function refreshAllFeeds() {
 
   for (const podcast of podcasts) {
     try {
+      console.log('[PEGYCASTLOG] Fetching and parsing feed for', podcast.id, podcast.feedUrl, podcast.title);
       const feed = await parseFeed(podcast.feedUrl);
       const existingEps = allEpisodes[podcast.id] || [];
       const existingUrls = new Set(existingEps.map((e) => e.audioUrl));
@@ -37,8 +39,9 @@ export async function refreshAllFeeds() {
         allEpisodes[podcast.id] = [...newEpisodes, ...existingEps];
         changed = true;
       }
+      console.log('[PEGYCASTLOG] Found new episodes', newEpisodes.length)
     } catch (e) {
-      console.error("Background refresh failed for", podcast.id, e);
+      console.error("[PEGYCASTLOG] Background refresh failed for", podcast.id, e);
     }
   }
 

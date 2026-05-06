@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { AppState } from "react-native";
 import { parseFeed as nativeParseFeed } from "@/modules/feed-parser/src";
 
 export interface Podcast {
@@ -86,23 +87,31 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
   const podcastsRef = useRef(podcasts);
   podcastsRef.current = podcasts;
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [podcastsStr, episodesStr] = await Promise.all([
-          AsyncStorage.getItem(STORAGE_KEY_PODCASTS),
-          AsyncStorage.getItem(STORAGE_KEY_EPISODES),
-        ]);
-        if (podcastsStr) setPodcasts(JSON.parse(podcastsStr));
-        if (episodesStr) setEpisodes(JSON.parse(episodesStr));
-      } catch (e) {
-        console.error("Failed to load data", e);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    load();
+  const loadFromStorage = useCallback(async () => {
+    const [podcastsStr, episodesStr] = await Promise.all([
+      AsyncStorage.getItem(STORAGE_KEY_PODCASTS),
+      AsyncStorage.getItem(STORAGE_KEY_EPISODES),
+    ]);
+    if (podcastsStr) setPodcasts(JSON.parse(podcastsStr));
+    if (episodesStr) setEpisodes(JSON.parse(episodesStr));
   }, []);
+
+  useEffect(() => {
+    loadFromStorage()
+      .catch((e) => console.error("Failed to load data", e))
+      .finally(() => setIsLoading(false));
+  }, [loadFromStorage]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        loadFromStorage().catch((e) =>
+          console.error("Failed to reload data on resume", e)
+        );
+      }
+    });
+    return () => sub.remove();
+  }, [loadFromStorage]);
 
   const savePodcasts = useCallback(async (data: Podcast[]) => {
     await AsyncStorage.setItem(STORAGE_KEY_PODCASTS, JSON.stringify(data));
