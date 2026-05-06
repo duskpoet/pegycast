@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -66,7 +66,10 @@ export default function SearchScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : 0;
 
-  const subscribedFeeds = new Set(podcasts.map((p) => p.feedUrl));
+  const subscribedFeeds = useMemo(
+    () => new Set(podcasts.map((p) => p.feedUrl)),
+    [podcasts],
+  );
 
   const handleSearch = useCallback(async () => {
     const trimmed = query.trim();
