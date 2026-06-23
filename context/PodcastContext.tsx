@@ -86,20 +86,42 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
   const downloadTasksRef = useRef<Record<string, FileSystem.DownloadResumable>>({});
   const podcastsRef = useRef(podcasts);
   podcastsRef.current = podcasts;
+  // Guards against persisting in-memory state before the initial load has
+  // populated it. Without this, an early mutation (e.g. the player marking the
+  // restored episode as listened) would write the empty initial state back to
+  // disk and wipe the stored podcasts/episodes.
+  const hydratedRef = useRef(false);
 
   const loadFromStorage = useCallback(async () => {
     const [podcastsStr, episodesStr] = await Promise.all([
       AsyncStorage.getItem(STORAGE_KEY_PODCASTS),
       AsyncStorage.getItem(STORAGE_KEY_EPISODES),
     ]);
-    if (podcastsStr) setPodcasts(JSON.parse(podcastsStr));
-    if (episodesStr) setEpisodes(JSON.parse(episodesStr));
+    // Parse each key independently so a single corrupt value can't blank
+    // everything (and can't throw past the hydration flag below).
+    if (podcastsStr) {
+      try {
+        setPodcasts(JSON.parse(podcastsStr));
+      } catch (e) {
+        console.error("Failed to parse stored podcasts", e);
+      }
+    }
+    if (episodesStr) {
+      try {
+        setEpisodes(JSON.parse(episodesStr));
+      } catch (e) {
+        console.error("Failed to parse stored episodes", e);
+      }
+    }
   }, []);
 
   useEffect(() => {
     loadFromStorage()
       .catch((e) => console.error("Failed to load data", e))
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        hydratedRef.current = true;
+        setIsLoading(false);
+      });
   }, [loadFromStorage]);
 
   useEffect(() => {
@@ -113,13 +135,40 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
     return () => sub.remove();
   }, [loadFromStorage]);
 
-  const savePodcasts = useCallback(async (data: Podcast[]) => {
-    await AsyncStorage.setItem(STORAGE_KEY_PODCASTS, JSON.stringify(data));
-  }, []);
+  // Persist on change rather than from inside state updaters. Gated on
+  // hydration so the empty initial state is never written over loaded data,
+  // and safe under StrictMode/React Compiler (which may invoke updaters twice).
+  const lastPodcastsJsonRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    const json = JSON.stringify(podcasts);
+    if (json === lastPodcastsJsonRef.current) return;
+    lastPodcastsJsonRef.current = json;
+    AsyncStorage.setItem(STORAGE_KEY_PODCASTS, json).catch((e) =>
+      console.error("Failed to persist podcasts", e)
+    );
+  }, [podcasts]);
 
-  const saveEpisodes = useCallback(async (data: Record<string, Episode[]>) => {
-    await AsyncStorage.setItem(STORAGE_KEY_EPISODES, JSON.stringify(data));
-  }, []);
+  const lastEpisodesJsonRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    // Strip in-flight download fields — they're meaningless across launches
+    // (a download can't resume after a kill) and would otherwise leave an
+    // episode stuck showing "downloading". Skipping unchanged payloads also
+    // avoids re-serializing/writing the whole map on every progress tick.
+    const sanitized: Record<string, Episode[]> = {};
+    for (const podcastId of Object.keys(episodes)) {
+      sanitized[podcastId] = episodes[podcastId].map(
+        ({ isDownloading, downloadProgress, ...rest }) => rest
+      );
+    }
+    const json = JSON.stringify(sanitized);
+    if (json === lastEpisodesJsonRef.current) return;
+    lastEpisodesJsonRef.current = json;
+    AsyncStorage.setItem(STORAGE_KEY_EPISODES, json).catch((e) =>
+      console.error("Failed to persist episodes", e)
+    );
+  }, [episodes]);
 
   const addPodcast = useCallback(
     async (feedUrl: string) => {
@@ -132,36 +181,20 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
         podcastId: id,
       }));
 
-      setPodcasts((prev) => {
-        const updated = [...prev, newPodcast];
-        savePodcasts(updated);
-        return updated;
-      });
-      setEpisodes((prev) => {
-        const updated = { ...prev, [id]: newEpisodes };
-        saveEpisodes(updated);
-        return updated;
-      });
+      setPodcasts((prev) => [...prev, newPodcast]);
+      setEpisodes((prev) => ({ ...prev, [id]: newEpisodes }));
     },
-    [savePodcasts, saveEpisodes]
+    []
   );
 
-  const removePodcast = useCallback(
-    (id: string) => {
-      setPodcasts((prev) => {
-        const updated = prev.filter((p) => p.id !== id);
-        savePodcasts(updated);
-        return updated;
-      });
-      setEpisodes((prev) => {
-        const updated = { ...prev };
-        delete updated[id];
-        saveEpisodes(updated);
-        return updated;
-      });
-    },
-    [savePodcasts, saveEpisodes]
-  );
+  const removePodcast = useCallback((id: string) => {
+    setPodcasts((prev) => prev.filter((p) => p.id !== id));
+    setEpisodes((prev) => {
+      const updated = { ...prev };
+      delete updated[id];
+      return updated;
+    });
+  }, []);
 
   const refreshFeed = useCallback(
     async (podcastId: string) => {
@@ -175,12 +208,10 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
           .filter((ep) => !existingUrls.has(ep.audioUrl))
           .map((ep) => ({ ...ep, id: generateId(), podcastId }));
         if (newEpisodes.length === 0) return prev;
-        const updatedEps = { ...prev, [podcastId]: [...newEpisodes, ...existingEps] };
-        saveEpisodes(updatedEps);
-        return updatedEps;
+        return { ...prev, [podcastId]: [...newEpisodes, ...existingEps] };
       });
     },
-    [saveEpisodes]
+    []
   );
 
 
@@ -188,19 +219,23 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
     (episodeId: string, updates: Partial<Episode>) => {
       setEpisodes((prev) => {
         const updated = { ...prev };
+        let found = false;
         for (const podcastId of Object.keys(updated)) {
           const idx = updated[podcastId].findIndex((e) => e.id === episodeId);
           if (idx !== -1) {
             updated[podcastId] = [...updated[podcastId]];
             updated[podcastId][idx] = { ...updated[podcastId][idx], ...updates };
+            found = true;
             break;
           }
         }
-        saveEpisodes(updated);
+        // Don't churn state (or trigger a persist) when nothing matched —
+        // avoids re-rendering for an episode we don't hold.
+        if (!found) return prev;
         return updated;
       });
     },
-    [saveEpisodes]
+    []
   );
 
   const downloadEpisode = useCallback(
@@ -263,11 +298,10 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
             break;
           }
         }
-        saveEpisodes(updated);
         return updated;
       });
     },
-    [saveEpisodes]
+    []
   );
 
   const getEpisodesByPodcast = useCallback(
