@@ -3,6 +3,7 @@ import * as BackgroundTask from "expo-background-task";
 import * as TaskManager from "expo-task-manager";
 import { parseFeed } from "@/modules/feed-parser/src";
 import type { Episode, Podcast } from "@/context/PodcastContext";
+import { filterNewEpisodes, mergeEpisodeLists } from "@/utils/episodes";
 
 const TASK_NAME = "REFRESH_FEEDS";
 
@@ -14,39 +15,84 @@ function generateId(): string {
 }
 
 export async function refreshAllFeeds() {
-  const podcastsStr = await AsyncStorage.getItem(STORAGE_KEY_PODCASTS);
-  const episodesStr = await AsyncStorage.getItem(STORAGE_KEY_EPISODES);
-  console.log('[PEGYCASTLOG] refreshAllFeeds', podcastsStr, episodesStr);
+  // Hard rule: this function must never write unless it successfully read the
+  // current state first. Any read/parse failure aborts — the foreground app
+  // owns recovery (it has the file backup); overwriting here could destroy
+  // data that is merely temporarily unreadable.
+  let podcastsStr: string | null;
+  let episodesStr: string | null;
+  try {
+    podcastsStr = await AsyncStorage.getItem(STORAGE_KEY_PODCASTS);
+    episodesStr = await AsyncStorage.getItem(STORAGE_KEY_EPISODES);
+  } catch (e) {
+    console.error("refreshAllFeeds: storage read failed, aborting", e);
+    return;
+  }
   if (!podcastsStr) return;
 
-  const podcasts: Podcast[] = JSON.parse(podcastsStr);
-  const allEpisodes: Record<string, Episode[]> = episodesStr
-    ? JSON.parse(episodesStr)
-    : {};
+  let podcasts: Podcast[];
+  let allEpisodes: Record<string, Episode[]> = {};
+  try {
+    podcasts = JSON.parse(podcastsStr);
+    if (episodesStr) allEpisodes = JSON.parse(episodesStr);
+  } catch (e) {
+    console.error("refreshAllFeeds: stored data unparseable, aborting", e);
+    return;
+  }
 
-  let changed = false;
-
+  // Collect new episodes per podcast without touching the snapshot — the
+  // snapshot goes stale while the feeds download.
+  const newByPodcast: Record<string, Episode[]> = {};
   for (const podcast of podcasts) {
     try {
-      console.log('[PEGYCASTLOG] Fetching and parsing feed for', podcast.id, podcast.feedUrl, podcast.title);
       const feed = await parseFeed(podcast.feedUrl);
-      const existingEps = allEpisodes[podcast.id] || [];
-      const existingUrls = new Set(existingEps.map((e) => e.audioUrl));
-      const newEpisodes: Episode[] = feed.episodes
-        .filter((ep) => !existingUrls.has(ep.audioUrl))
-        .map((ep) => ({ ...ep, id: generateId(), podcastId: podcast.id }));
-      if (newEpisodes.length > 0) {
-        allEpisodes[podcast.id] = [...newEpisodes, ...existingEps];
-        changed = true;
-      }
-      console.log('[PEGYCASTLOG] Found new episodes', newEpisodes.length)
+      const existing = allEpisodes[podcast.id] || [];
+      const fresh: Episode[] = filterNewEpisodes(existing, feed.episodes).map(
+        (ep) => ({ ...ep, id: generateId(), podcastId: podcast.id })
+      );
+      if (fresh.length > 0) newByPodcast[podcast.id] = fresh;
     } catch (e) {
-      console.error("[PEGYCASTLOG] Background refresh failed for", podcast.id, e);
+      console.error("Background refresh failed for", podcast.id, e);
     }
   }
 
-  if (changed) {
-    await AsyncStorage.setItem(STORAGE_KEY_EPISODES, JSON.stringify(allEpisodes));
+  if (Object.keys(newByPodcast).length === 0) return;
+
+  // Merge the additions into a FRESH read of the store. The app may have
+  // persisted new state (downloads, listened flags, new subscriptions,
+  // removals) while the feeds were downloading; writing the stale snapshot
+  // back would erase it.
+  try {
+    const [freshPodcastsStr, freshEpisodesStr] = await Promise.all([
+      AsyncStorage.getItem(STORAGE_KEY_PODCASTS),
+      AsyncStorage.getItem(STORAGE_KEY_EPISODES),
+    ]);
+    const freshPodcasts: Podcast[] = freshPodcastsStr
+      ? JSON.parse(freshPodcastsStr)
+      : [];
+    const validIds = new Set(freshPodcasts.map((p) => p.id));
+    const freshEpisodes: Record<string, Episode[]> = freshEpisodesStr
+      ? JSON.parse(freshEpisodesStr)
+      : {};
+
+    let changed = false;
+    for (const [podcastId, newEps] of Object.entries(newByPodcast)) {
+      // Skip podcasts the user removed while feeds were downloading.
+      if (!validIds.has(podcastId)) continue;
+      const merged = mergeEpisodeLists(freshEpisodes[podcastId] || [], newEps);
+      if (merged) {
+        freshEpisodes[podcastId] = merged;
+        changed = true;
+      }
+    }
+    if (changed) {
+      await AsyncStorage.setItem(
+        STORAGE_KEY_EPISODES,
+        JSON.stringify(freshEpisodes)
+      );
+    }
+  } catch (e) {
+    console.error("refreshAllFeeds: merge/write failed", e);
   }
 }
 

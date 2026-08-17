@@ -17,7 +17,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { PlayerProvider } from "@/context/PlayerContext";
 import { PodcastProvider } from "@/context/PodcastContext";
-import { registerFeedRefreshTask, refreshAllFeeds } from "@/tasks/refreshFeeds";
+import { registerFeedRefreshTask } from "@/tasks/refreshFeeds";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -56,7 +56,10 @@ export default function RootLayout() {
 
   useEffect(() => {
     registerFeedRefreshTask();
-    refreshAllFeeds();
+    // Note: no refreshAllFeeds() here — the launch-time feed refresh happens
+    // inside PodcastProvider after hydration, through normal state
+    // persistence. Calling it here raced the provider's load and could write
+    // a stale snapshot over newer data.
   }, []);
 
   if (!fontsLoaded && !fontError) return null;
