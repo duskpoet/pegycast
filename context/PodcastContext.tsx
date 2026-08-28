@@ -311,10 +311,12 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
   }, [doHydrate]);
 
   // Re-attach downloaded audio files to their episode records. Download files
-  // are named <episodeId>.mp3, so the local path can always be re-derived:
-  // this recovers records whose downloadedPath was lost, heals absolute paths
-  // broken by the iOS container UUID changing across app updates, and clears
-  // paths whose file no longer exists (so playback falls back to streaming).
+  // are named <episodeId>.mp3 and only renamed to that once fully downloaded
+  // (in-flight data lives in <episodeId>.mp3.part), so the local path can
+  // always be re-derived: this recovers records whose downloadedPath was
+  // lost, heals absolute paths broken by the iOS container UUID changing
+  // across app updates, and clears paths whose file no longer exists (so
+  // playback falls back to streaming).
   const recoverDownloadState = useCallback(async () => {
     const dir = DOWNLOADS_DIR;
     if (!dir) return;
@@ -326,6 +328,16 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
       const files = new Set(
         info.exists ? await FileSystem.readDirectoryAsync(dir) : []
       );
+      // Sweep partial files orphaned by a kill or a failed download, but
+      // leave any belonging to a download that's in flight right now.
+      for (const name of files) {
+        if (!name.endsWith(".mp3.part")) continue;
+        const episodeId = name.slice(0, -".mp3.part".length);
+        if (downloadTasksRef.current[episodeId]) continue;
+        FileSystem.deleteAsync(dir + name, { idempotent: true }).catch(
+          console.error
+        );
+      }
       setEpisodes((prev) => {
         let changed = false;
         const updated: EpisodeMap = {};
@@ -525,36 +537,63 @@ export function PodcastProvider({ children }: { children: ReactNode }) {
     async (episode: Episode) => {
       const dir = DOWNLOADS_DIR;
       if (!dir) return;
-      await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      // A second concurrent download of the same episode would write into
+      // the same .part file and corrupt it. Register the task before the
+      // first await so the guard has no async gap to slip through.
+      if (downloadTasksRef.current[episode.id]) return;
       const filename = episode.id + ".mp3";
       const localUri = dir + filename;
-
-      updateEpisode(episode.id, { isDownloading: true, downloadProgress: 0 });
+      // Download to a .part file and rename into place only on verified
+      // completion, so a <episodeId>.mp3 on disk always means "fully
+      // downloaded" — recoverDownloadState trusts that invariant.
+      const partialUri = localUri + ".part";
 
       const downloadResumable = FileSystem.createDownloadResumable(
         episode.audioUrl,
-        localUri,
+        partialUri,
         {},
         (progress) => {
           const pct = progress.totalBytesWritten / (progress.totalBytesExpectedToWrite || 1);
           updateEpisode(episode.id, { downloadProgress: pct });
         }
       );
-
       downloadTasksRef.current[episode.id] = downloadResumable;
 
+      updateEpisode(episode.id, { isDownloading: true, downloadProgress: 0 });
+
       try {
+        await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
         const result = await downloadResumable.downloadAsync();
         if (result) {
+          // downloadAsync resolves even on HTTP errors; don't keep an error
+          // page saved as an episode.
+          if (result.status < 200 || result.status >= 300) {
+            throw new Error(`HTTP ${result.status} for ${episode.audioUrl}`);
+          }
+          await FileSystem.deleteAsync(localUri, { idempotent: true });
+          await FileSystem.moveAsync({ from: partialUri, to: localUri });
           updateEpisode(episode.id, {
-            downloadedPath: result.uri,
+            downloadedPath: localUri,
             isDownloading: false,
             downloadProgress: 1,
           });
         }
       } catch (e) {
         console.error("Download failed", e);
-        updateEpisode(episode.id, { isDownloading: false, downloadProgress: undefined });
+        await FileSystem.deleteAsync(partialUri, { idempotent: true }).catch(
+          console.error
+        );
+        // A failure between the delete and the move above leaves nothing at
+        // localUri — a stale downloadedPath must not keep pointing there.
+        let fileExists = false;
+        try {
+          fileExists = (await FileSystem.getInfoAsync(localUri)).exists;
+        } catch {}
+        updateEpisode(episode.id, {
+          isDownloading: false,
+          downloadProgress: undefined,
+          ...(fileExists ? null : { downloadedPath: undefined }),
+        });
       } finally {
         delete downloadTasksRef.current[episode.id];
       }
